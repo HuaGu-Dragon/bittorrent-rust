@@ -2,7 +2,7 @@
 
 * todo
 
-* [ ] Decode bencoded string
+* [x] Decode bencoded string
 
 * [ ] Decode bencoded integers
 
