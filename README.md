@@ -4,7 +4,7 @@
 
 * [x] Decode bencoded string
 
-* [ ] Decode bencoded integers
+* [x] Decode bencoded integers
 
 * [ ] Decode bencoded lists
 
