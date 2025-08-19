@@ -22,6 +22,21 @@ fn decode_bencoded_value(encoded_value: &str) -> anyhow::Result<(serde_json::Val
             }
             return Ok((items.into(), &rest[1..]));
         }
+        Some(b'd') => {
+            let mut items = serde_json::Map::new();
+            let mut rest = encoded_value.split_at(1).1;
+            while !rest.starts_with('e') {
+                let (k, reminder) = decode_bencoded_value(rest)?;
+                let k = match k {
+                    serde_json::Value::String(k) => k,
+                    _ => anyhow::bail!("Dictionary keys must be strings, found: {}", k),
+                };
+                let (v, reminder) = decode_bencoded_value(reminder)?;
+                items.insert(k, v);
+                rest = reminder;
+            }
+            return Ok((items.into(), &rest[1..]));
+        }
         Some(b'0'..=b'9') => {
             if let Some((len, rest)) = encoded_value.split_once(':') {
                 if let Ok(len) = len.parse::<usize>() {

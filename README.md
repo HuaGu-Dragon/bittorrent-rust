@@ -6,9 +6,9 @@
 
 * [x] Decode bencoded integers
 
-* [ ] Decode bencoded lists
+* [x] Decode bencoded lists
 
-* [ ] Decode bencoded dictionary
+* [x] Decode bencoded dictionary
 
 * [ ] Parse torrent file
 
