@@ -1,5 +1,20 @@
+use anyhow::Context;
+use clap::{Parser, Subcommand};
+use serde::{Deserialize, de::Visitor};
 use serde_json;
-use std::env;
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Decode { value: String },
+    Info { torrent: PathBuf },
+}
 
 fn decode_bencoded_value(encoded_value: &str) -> anyhow::Result<(serde_json::Value, &str)> {
     match encoded_value.bytes().next() {
@@ -49,17 +64,95 @@ fn decode_bencoded_value(encoded_value: &str) -> anyhow::Result<(serde_json::Val
     anyhow::bail!("Invalid bencoded value: {}", encoded_value)
 }
 
-fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let command = &args[1];
+#[derive(Debug, Clone, Deserialize)]
+struct Torrent {
+    announce: String, //reqwest::Url,
+    info: Info,
+}
 
-    if command == "decode" {
-        let encoded_value = &args[2];
-        let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{}", decoded_value?.0.to_string());
-    } else {
-        println!("unknown command: {}", args[1])
+#[derive(Debug, Clone, Deserialize)]
+struct Info {
+    name: String,
+    #[serde(rename = "piece length")]
+    piece_length: usize,
+    pieces: Hashes,
+    #[serde(flatten)]
+    keys: Keys,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum Keys {
+    SingleFile { length: usize },
+    MultiFile { file: Vec<File> },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct File {
+    length: usize,
+    path: Vec<String>,
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Decode { value } => {
+            // let v: serde_json::Value =
+            //     serde_bencode::from_str(&value).context("decode bencoded value")?;
+
+            let v = decode_bencoded_value(&value)?.0.to_string();
+
+            println!("{v}");
+        }
+        Commands::Info { torrent } => {
+            // Handle the Info command
+            let torrent = std::fs::read(torrent).context("read torrent file")?;
+            let t: Torrent =
+                serde_bencode::from_bytes(&torrent).context("deserialize torrent file")?;
+
+            println!("Tracker URL: {}", t.announce);
+            if let Keys::SingleFile { length } = t.info.keys {
+                println!("Length: {length}");
+            }
+        }
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct Hashes(Vec<[u8; 20]>);
+struct HashesVisitor;
+
+impl<'de> Visitor<'de> for HashesVisitor {
+    type Value = Hashes;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a byte string whose length is multiple of 20")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if v.len() % 20 != 0 {
+            Err(E::invalid_length(v.len(), &self))
+        } else {
+            Ok(Hashes(
+                v.chunks_exact(20)
+                    .map(|chunk| chunk.try_into().unwrap())
+                    .collect(),
+            ))
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Hashes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(HashesVisitor)
+    }
 }
