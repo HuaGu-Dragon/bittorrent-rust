@@ -10,7 +10,7 @@
 
 * [x] Decode bencoded dictionary
 
-* [ ] Parse torrent file
+* [x] Parse torrent file
 
 * [ ] Calculate info hash
 
