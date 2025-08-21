@@ -14,7 +14,7 @@
 
 * [x] Calculate info hash
 
-* [ ] Piece hashes
+* [x] Piece hashes
 
 * [ ] Discover peers
 

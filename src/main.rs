@@ -123,6 +123,13 @@ fn main() -> anyhow::Result<()> {
             let info_hash = hash.finalize();
 
             println!("Info Hash: {}", hex::encode(info_hash));
+
+            println!("Piece Length: {}", t.info.piece_length);
+
+            println!("Piece Hashes:");
+            for hash in t.info.pieces.0 {
+                println!("{}", hex::encode(hash));
+            }
         }
     }
 
