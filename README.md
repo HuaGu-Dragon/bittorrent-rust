@@ -12,7 +12,7 @@
 
 * [x] Parse torrent file
 
-* [ ] Calculate info hash
+* [x] Calculate info hash
 
 * [ ] Piece hashes
 

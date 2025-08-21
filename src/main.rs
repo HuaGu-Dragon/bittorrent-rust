@@ -1,7 +1,8 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, de::Visitor};
+use serde::{Deserialize, Serialize, de::Visitor};
 use serde_json;
+use sha1::{Digest, Sha1};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -70,7 +71,7 @@ struct Torrent {
     info: Info,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Info {
     name: String,
     #[serde(rename = "piece length")]
@@ -80,14 +81,14 @@ struct Info {
     keys: Keys,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum Keys {
     SingleFile { length: usize },
     MultiFile { file: Vec<File> },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct File {
     length: usize,
     path: Vec<String>,
@@ -115,6 +116,13 @@ fn main() -> anyhow::Result<()> {
             if let Keys::SingleFile { length } = t.info.keys {
                 println!("Length: {length}");
             }
+            let info_bencode = serde_bencode::to_bytes(&t.info).context("serialize info")?;
+
+            let mut hash = Sha1::new();
+            hash.update(&info_bencode);
+            let info_hash = hash.finalize();
+
+            println!("Info Hash: {}", hex::encode(info_hash));
         }
     }
 
@@ -145,6 +153,16 @@ impl<'de> Visitor<'de> for HashesVisitor {
                     .collect(),
             ))
         }
+    }
+}
+
+impl Serialize for Hashes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let bytes = self.0.concat();
+        serializer.serialize_bytes(&bytes)
     }
 }
 
