@@ -1,11 +1,9 @@
 use anyhow::Context;
-use bittorrent_rust::{
-    torrent::*,
-    tracker::{TrackerRequest, TrackerResponse, url_encode},
-};
+use bittorrent_rust::{peer::Handshake, torrent::*, tracker::*};
 use clap::{Parser, Subcommand};
 use serde_json;
-use std::path::PathBuf;
+use std::{net::SocketAddrV4, path::PathBuf, str::FromStr};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -18,6 +16,7 @@ enum Commands {
     Decode { value: String },
     Info { torrent: PathBuf },
     Peers { torrent: PathBuf },
+    Handshake { torrent: PathBuf, peer: String },
 }
 
 fn decode_bencoded_value(encoded_value: &str) -> anyhow::Result<(serde_json::Value, &str)> {
@@ -147,6 +146,40 @@ async fn main() -> anyhow::Result<()> {
             for peer in response.peers.0 {
                 println!("{} {}", peer.ip(), peer.port());
             }
+        }
+        Commands::Handshake { torrent, peer } => {
+            let dot_torrent = std::fs::read(torrent).context("read torrent file")?;
+            let t: Torrent =
+                serde_bencode::from_bytes(&dot_torrent).context("deserialize torrent file")?;
+            let length = if let Keys::SingleFile { length } = t.info.keys {
+                length
+            } else {
+                todo!()
+            };
+
+            let info_hash = t.info_hash();
+
+            let peer = SocketAddrV4::from_str(peer.as_str()).context("parse peer address")?;
+
+            let mut peer = tokio::net::TcpStream::connect(peer)
+                .await
+                .context("connect to peer")?;
+
+            let mut handshake = Handshake::new(info_hash, *b"00112233445566778899");
+            {
+                let handshake_bytes =
+                    &raw mut handshake as *mut [u8; std::mem::size_of::<Handshake>()];
+
+                let handshake_bytes = unsafe { &mut *handshake_bytes };
+                peer.write_all(handshake_bytes)
+                    .await
+                    .context("write handshake")?;
+
+                peer.read_exact(handshake_bytes)
+                    .await
+                    .context("read handshake")?;
+            }
+            println!("Peer ID: {}", hex::encode(handshake.peer_id));
         }
     }
 
