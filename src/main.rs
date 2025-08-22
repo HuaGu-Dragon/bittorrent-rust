@@ -151,11 +151,6 @@ async fn main() -> anyhow::Result<()> {
             let dot_torrent = std::fs::read(torrent).context("read torrent file")?;
             let t: Torrent =
                 serde_bencode::from_bytes(&dot_torrent).context("deserialize torrent file")?;
-            let length = if let Keys::SingleFile { length } = t.info.keys {
-                length
-            } else {
-                todo!()
-            };
 
             let info_hash = t.info_hash();
 
