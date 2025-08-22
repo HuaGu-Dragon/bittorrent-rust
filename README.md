@@ -16,7 +16,7 @@
 
 * [x] Piece hashes
 
-* [ ] Discover peers
+* [x] Discover peers
 
 * [ ] Peer handshake
 
