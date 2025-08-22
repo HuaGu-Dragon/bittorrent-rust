@@ -1,9 +1,19 @@
 use serde::{Deserialize, Serialize, de::Visitor};
+use sha1::{Digest, Sha1};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Torrent {
     pub announce: String, //reqwest::Url,
     pub info: Info,
+}
+
+impl Torrent {
+    pub fn info_hash(&self) -> [u8; 20] {
+        let info_hash = serde_bencode::to_bytes(&self.info).expect("serialize info");
+        let mut hasher = Sha1::new();
+        hasher.update(info_hash);
+        hasher.finalize().into()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
