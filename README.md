@@ -18,7 +18,7 @@
 
 * [x] Discover peers
 
-* [ ] Peer handshake
+* [x] Peer handshake
 
 * [ ] Download a piece
 
