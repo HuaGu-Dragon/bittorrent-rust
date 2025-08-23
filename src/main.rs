@@ -76,7 +76,10 @@ async fn main() -> anyhow::Result<()> {
             // let v: serde_json::Value =
             //     serde_bencode::from_str(&value).context("decode bencoded value")?;
 
-            let v = decode_bencoded_value(&value)?.0.to_string();
+            let v = decode_bencoded_value(&value)
+                .context("decode bencoded value")?
+                .0
+                .to_string();
 
             println!("{v}");
         }
