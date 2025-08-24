@@ -275,7 +275,7 @@ async fn main() -> anyhow::Result<()> {
                 payload: Vec::new(),
             })
             .await
-            .context("send message with request")?;
+            .context("send message with interested")?;
 
             let un_choke = peer
                 .next()
