@@ -20,6 +20,6 @@
 
 * [x] Peer handshake
 
-* [ ] Download a piece
+* [x] Download a piece
 
 * [ ] Download the whole file
