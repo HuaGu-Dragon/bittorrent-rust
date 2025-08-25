@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize, de::Visitor};
 use sha1::{Digest, Sha1};
 
+use crate::download::Downloaded;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Torrent {
     pub announce: String, //reqwest::Url,
@@ -38,8 +40,15 @@ impl Torrent {
         }
     }
 
-    pub async fn download_all(&self) -> Result<()> {
-        Ok(())
+    pub fn length(&self) -> usize {
+        match self.info.keys {
+            Keys::SingleFile { length } => length,
+            Keys::MultiFile { ref files } => files.iter().map(|f| f.length).sum(),
+        }
+    }
+
+    pub async fn download_all(&self) -> Result<Downloaded> {
+        crate::download::download_all(self).await
     }
 }
 

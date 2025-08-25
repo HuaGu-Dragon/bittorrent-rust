@@ -1,4 +1,16 @@
-use crate::torrent::File;
+use anyhow::{Context, Result};
+
+use crate::{
+    torrent::{File, Torrent},
+    tracker::TrackerResponse,
+};
+
+pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
+    let peer_info = TrackerResponse::query(t)
+        .await
+        .context("query tracker for peer info")?;
+    todo!()
+}
 
 pub struct Downloaded {
     bytes: Vec<u8>,

@@ -1,6 +1,9 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize, de::Visitor};
+
+use crate::torrent::Torrent;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackerRequest {
@@ -16,6 +19,36 @@ pub struct TrackerRequest {
 pub struct TrackerResponse {
     pub interval: usize,
     pub peers: Peers,
+}
+
+impl TrackerResponse {
+    pub(crate) async fn query(t: &Torrent) -> anyhow::Result<Self> {
+        let info_hash = t.info_hash();
+        let request = TrackerRequest {
+            peer_id: String::from("00112233445566778899"),
+            port: 6881,
+            uploaded: 0,
+            downloaded: 0,
+            left: t.length(),
+            compact: 1,
+        };
+
+        let mut tracker_url =
+            reqwest::Url::parse(&t.announce).context("parse tracker announce URL")?;
+        let url_params =
+            serde_urlencoded::to_string(request).context("serialize tracker request")?;
+
+        let url_params = format!("info_hash={}&{}", &url_encode(&info_hash), url_params);
+        tracker_url.set_query(Some(&url_params));
+
+        let response = reqwest::get(tracker_url)
+            .await
+            .context("send tracker request")?;
+        let response = response.bytes().await.context("read tracker response")?;
+        let response: TrackerResponse =
+            serde_bencode::from_bytes(&response).context("deserialize tracker response")?;
+        Ok(response)
+    }
 }
 
 #[derive(Debug, Clone)]
