@@ -41,6 +41,11 @@ enum Commands {
         torrent: PathBuf,
         piece: usize,
     },
+    Download {
+        #[arg(short)]
+        output: PathBuf,
+        torrent: PathBuf,
+    },
 }
 
 fn decode_bencoded_value(encoded_value: &str) -> anyhow::Result<(serde_json::Value, &str)> {
@@ -335,6 +340,7 @@ async fn main() -> anyhow::Result<()> {
                 .context("write piece to output file")?;
             println!("Piece {piece} downloaded to {}", output.display())
         }
+        Commands::Download { output, torrent } => {}
     }
 
     Ok(())

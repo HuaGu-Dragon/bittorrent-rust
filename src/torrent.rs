@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize, de::Visitor};
 use sha1::{Digest, Sha1};
 
@@ -13,6 +16,30 @@ impl Torrent {
         let mut hasher = Sha1::new();
         hasher.update(info_hash);
         hasher.finalize().into()
+    }
+
+    pub async fn read(file: impl AsRef<Path>) -> Result<Self> {
+        let torrent = tokio::fs::read(file).await.context("read torrent file")?;
+        let t: Torrent = serde_bencode::from_bytes(&torrent).context("deserialize torrent file")?;
+
+        Ok(t)
+    }
+
+    pub fn print_tree(&self) {
+        match self.info.keys {
+            Keys::SingleFile { .. } => {
+                println!("{}", self.info.name);
+            }
+            Keys::MultiFile { ref files } => {
+                for file in files {
+                    println!("{}", file.path.join(std::path::MAIN_SEPARATOR_STR))
+                }
+            }
+        }
+    }
+
+    pub async fn download_all(&self) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -30,7 +57,7 @@ pub struct Info {
 #[serde(untagged)]
 pub enum Keys {
     SingleFile { length: usize },
-    MultiFile { file: Vec<File> },
+    MultiFile { files: Vec<File> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
