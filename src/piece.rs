@@ -49,11 +49,15 @@ impl Piece {
             piece_i,
             length: piece_size,
             hash: piece_hash,
-            seed: todo!(),
+            seed: fastrand::u64(..),
         }
     }
 
-    pub fn peers(&self) -> &[usize] {
+    pub(crate) fn peers(&self) -> &[usize] {
         &self.peers
+    }
+
+    pub(crate) fn length(&self) -> usize {
+        self.length
     }
 }
