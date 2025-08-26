@@ -81,6 +81,10 @@ impl Peer {
 
         Ok(Vec::from(piece.block()))
     }
+
+    pub fn has_piece(&self, piece: u32) -> bool {
+        self.bit_field.has_piece(piece)
+    }
 }
 
 pub struct BitField {

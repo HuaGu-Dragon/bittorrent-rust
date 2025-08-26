@@ -22,8 +22,7 @@ pub struct TrackerResponse {
 }
 
 impl TrackerResponse {
-    pub(crate) async fn query(t: &Torrent) -> anyhow::Result<Self> {
-        let info_hash = t.info_hash();
+    pub(crate) async fn query(t: &Torrent, info_hash: [u8; 20]) -> anyhow::Result<Self> {
         let request = TrackerRequest {
             peer_id: String::from("00112233445566778899"),
             port: 6881,
