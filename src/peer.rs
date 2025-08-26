@@ -1,7 +1,138 @@
+use std::net::SocketAddrV4;
+
+use anyhow::Context;
+use futures_util::{SinkExt, StreamExt};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 use tokio_util::{
     bytes::{Buf, BufMut, BytesMut},
-    codec::{Decoder, Encoder},
+    codec::{Decoder, Encoder, Framed},
 };
+
+const BLOCK_MAX_SIZE: u32 = 1 << 14;
+
+pub(crate) struct Peer {
+    addr: SocketAddrV4,
+    stream: Framed<TcpStream, MessageFramer>,
+    bit_field: BitField,
+}
+
+impl Peer {
+    pub async fn new(peer_addr: SocketAddrV4, info_hash: [u8; 20]) -> anyhow::Result<Self> {
+        let mut peer = tokio::net::TcpStream::connect(peer_addr)
+            .await
+            .context("connect to peer")?;
+
+        let mut handshake = Handshake::new(info_hash, *b"00112233445566778899");
+        {
+            let handshake_bytes = handshake.as_bytes_mut();
+
+            peer.write_all(handshake_bytes)
+                .await
+                .context("write handshake")?;
+
+            peer.read_exact(handshake_bytes)
+                .await
+                .context("read handshake")?;
+        }
+
+        let mut peer = tokio_util::codec::Framed::new(peer, MessageFramer);
+        let bit_field = peer
+            .next()
+            .await
+            .context("read message expected BitField")??;
+        anyhow::ensure!(bit_field.tag == MessageTag::BitField);
+
+        Ok(Self {
+            addr: peer_addr,
+            stream: peer,
+            bit_field: BitField::from_payload(bit_field.payload),
+        })
+    }
+
+    pub async fn download(
+        &mut self,
+        piece: u32,
+        block: u32,
+        block_size: u32,
+    ) -> anyhow::Result<Vec<u8>> {
+        anyhow::ensure!(
+            self.bit_field.has_piece(piece),
+            "peer does not have piece {piece}"
+        );
+        let mut request = Request::new(piece as u32, block * BLOCK_MAX_SIZE, block_size as u32);
+        let request_bytes = Vec::from(request.as_bytes_mut());
+        self.stream
+            .send(Message {
+                tag: MessageTag::Request,
+                payload: request_bytes,
+            })
+            .await
+            .with_context(|| format!("send request for block {block}"))?;
+
+        let piece = self.stream.next().await.context("read piece message")??;
+        assert_eq!(piece.tag, MessageTag::Piece);
+        let piece =
+            Piece::ref_from_bytes(&piece.payload[..]).context("deserialize piece message")?;
+        anyhow::ensure!(piece.begin() == block * BLOCK_MAX_SIZE);
+        anyhow::ensure!(piece.block().len() == block_size as usize);
+
+        Ok(Vec::from(piece.block()))
+    }
+}
+
+pub struct BitField {
+    payload: Vec<u8>,
+}
+
+impl BitField {
+    pub(crate) fn has_piece(&self, piece: u32) -> bool {
+        let byte_i = piece / u8::BITS;
+        let bit_i = piece % u8::BITS;
+
+        let Some(&byte) = self.payload.get(byte_i as usize) else {
+            return false;
+        };
+        byte & 1u8.rotate_right(1 + bit_i) != 0
+    }
+
+    pub(crate) fn pieces(&self) -> impl Iterator<Item = usize> {
+        self.payload.iter().enumerate().flat_map(|(byte_i, &byte)| {
+            (0..u8::BITS).filter_map(move |bit_i| {
+                let piece_i = byte_i as u32 * u8::BITS + bit_i;
+                let mask = 1u8.rotate_right(1 + bit_i);
+                (byte & mask != 0).then_some(piece_i as usize)
+            })
+        })
+    }
+
+    fn from_payload(payload: Vec<u8>) -> Self {
+        Self { payload }
+    }
+}
+
+#[test]
+fn bit_field_has() {
+    let bf = BitField {
+        payload: vec![0b10101010, 0b01010101],
+    };
+    assert!(bf.has_piece(0));
+    assert!(!bf.has_piece(1));
+    assert!(!bf.has_piece(7));
+    assert!(!bf.has_piece(8));
+    assert!(bf.has_piece(15));
+}
+
+#[test]
+fn bit_field_pieces() {
+    let bf = BitField {
+        payload: vec![0b10101010, 0b01010101],
+    };
+    let pieces: Vec<_> = bf.pieces().collect();
+    assert_eq!(pieces, vec![0, 2, 4, 6, 9, 11, 13, 15]);
+}
 
 #[repr(C)]
 pub struct Handshake {
