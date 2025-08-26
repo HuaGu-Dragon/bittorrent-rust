@@ -1,12 +1,13 @@
+use std::collections::HashSet;
+
 use crate::{peer::Peer, torrent::Torrent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Piece {
-    peers: Vec<usize>,
-    piece_i: usize,
+    peers: HashSet<usize>,
+    pub piece_i: usize,
     length: usize,
     hash: [u8; 20],
-    seed: u64,
 }
 
 impl Ord for Piece {
@@ -14,11 +15,10 @@ impl Ord for Piece {
         self.peers
             .len()
             .cmp(&other.peers.len())
-            .then(self.seed.cmp(&other.seed))
+            .then(self.piece_i.cmp(&other.piece_i))
             .then(self.hash.cmp(&other.hash))
             .then(self.length.cmp(&other.length))
-            .then(self.peers.cmp(&other.peers))
-            .then(self.piece_i.cmp(&other.piece_i))
+            .then(self.peers.iter().cmp(other.peers.iter()))
     }
 }
 
@@ -49,11 +49,10 @@ impl Piece {
             piece_i,
             length: piece_size,
             hash: piece_hash,
-            seed: fastrand::u64(..),
         }
     }
 
-    pub(crate) fn peers(&self) -> &[usize] {
+    pub(crate) fn peers(&self) -> &HashSet<usize> {
         &self.peers
     }
 

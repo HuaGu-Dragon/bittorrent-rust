@@ -17,4 +17,3 @@ serde_urlencoded = "0.7.1"
 sha1 = "0.10.6"
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-util = { version = "0.7.16", features = ["full"] }
-fastrand = "2.3.0"

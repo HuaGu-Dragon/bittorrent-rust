@@ -11,7 +11,7 @@ use tokio_util::{
     codec::{Decoder, Encoder, Framed},
 };
 
-const BLOCK_MAX_SIZE: u32 = 1 << 14;
+use crate::BLOCK_MAX_SIZE;
 
 pub(crate) struct Peer {
     addr: SocketAddrV4,

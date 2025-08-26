@@ -3,3 +3,5 @@ pub mod peer;
 pub mod piece;
 pub mod torrent;
 pub mod tracker;
+
+const BLOCK_MAX_SIZE: u32 = 1 << 14;

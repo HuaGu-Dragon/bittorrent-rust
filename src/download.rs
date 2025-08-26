@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use futures_util::StreamExt;
 
 use crate::{
-    peer::Peer,
+    BLOCK_MAX_SIZE,
+    peer::{self, Message, MessageTag, Peer, Request},
     piece::Piece,
     torrent::{File, Torrent},
     tracker::TrackerResponse,
@@ -46,6 +47,45 @@ pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
     }
 
     assert!(no_peers.is_empty(), "pieces with no peers: {no_peers:?}");
+
+    while let Some(piece) = need_pieces.pop() {
+        let blocks_num = (piece.length() as u32 + BLOCK_MAX_SIZE - 1) / BLOCK_MAX_SIZE;
+        let mut all_blocks = Vec::with_capacity(piece.length());
+        let peers = peers
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(peer_i, peer)| piece.peers().contains(&peer_i).then_some(peer));
+
+        for block in 0..blocks_num {
+            let block_size = if block == blocks_num - 1 {
+                let md = piece.length() as u32 % BLOCK_MAX_SIZE;
+                if md == 0 { BLOCK_MAX_SIZE } else { md }
+            } else {
+                BLOCK_MAX_SIZE
+            };
+            let mut request = Request::new(
+                piece.piece_i as u32,
+                (block * BLOCK_MAX_SIZE) as u32,
+                block_size as u32,
+            );
+            let request_bytes = Vec::from(request.as_bytes_mut());
+            // peer.send(Message {
+            //     tag: MessageTag::Request,
+            //     payload: request_bytes,
+            // })
+            // .await
+            // .with_context(|| format!("send request for block {block}"))?;
+
+            // let piece = peer.next().await.context("read piece message")??;
+            // assert_eq!(piece.tag, MessageTag::Piece);
+            // let piece =
+            //     Piece::ref_from_bytes(&piece.payload[..]).context("deserialize piece message")?;
+            // assert_eq!(piece.begin() as usize, block * BLOCK_MAX_SIZE);
+            // assert_eq!(piece.block().len(), block_size);
+
+            // all_blocks.extend(piece.block());
+        }
+    }
 
     todo!()
 }
