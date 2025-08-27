@@ -22,4 +22,4 @@
 
 * [x] Download a piece
 
-* [ ] Download the whole file
+* [x] Download the whole file
