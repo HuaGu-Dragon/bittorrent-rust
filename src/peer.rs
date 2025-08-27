@@ -17,6 +17,7 @@ pub(crate) struct Peer {
     addr: SocketAddrV4,
     stream: Framed<TcpStream, MessageFramer>,
     bit_field: BitField,
+    choked: bool,
 }
 
 impl Peer {
@@ -49,6 +50,7 @@ impl Peer {
             addr: peer_addr,
             stream: peer,
             bit_field: BitField::from_payload(bit_field.payload),
+            choked: true,
         })
     }
 
@@ -84,6 +86,64 @@ impl Peer {
 
     pub fn has_piece(&self, piece: u32) -> bool {
         self.bit_field.has_piece(piece)
+    }
+
+    pub(crate) async fn participate(
+        &mut self,
+        piece_i: u32,
+        piece_size: u32,
+        blocks_num: u32,
+        submit: kanal::AsyncSender<u32>,
+        tasks: kanal::AsyncReceiver<u32>,
+        finish: tokio::sync::mpsc::Sender<Message>,
+    ) -> anyhow::Result<()> {
+        self.stream
+            .send(Message {
+                tag: MessageTag::Interested,
+                payload: Vec::new(),
+            })
+            .await
+            .context("send message with interested")?;
+
+        let un_choke = self
+            .stream
+            .next()
+            .await
+            .context("read message expected UnChoke")??;
+        assert_eq!(un_choke.tag, MessageTag::UnChoke);
+        assert!(un_choke.payload.is_empty());
+
+        while let Ok(block_i) = tasks.recv().await {
+            let block_size = if block_i == blocks_num - 1 {
+                let md = piece_size % BLOCK_MAX_SIZE;
+                if md == 0 { BLOCK_MAX_SIZE } else { md }
+            } else {
+                BLOCK_MAX_SIZE
+            };
+            let mut request = Request::new(piece_i, block_i * BLOCK_MAX_SIZE, block_size);
+            let request_bytes = Vec::from(request.as_bytes_mut());
+            self.stream
+                .send(Message {
+                    tag: MessageTag::Request,
+                    payload: request_bytes,
+                })
+                .await
+                .with_context(|| format!("send request for block {block_i}"))?;
+
+            let piece = self.stream.next().await.context("read piece message")??;
+            assert_eq!(piece.tag, MessageTag::Piece);
+
+            {
+                let piece = Piece::ref_from_bytes(&piece.payload[..])
+                    .context("deserialize piece message")?;
+                assert_eq!(piece.begin(), block_i * BLOCK_MAX_SIZE);
+                assert_eq!(piece.block().len(), block_size as usize);
+            }
+
+            finish.send(piece).await.expect("send piece to finisher");
+        }
+
+        Ok(())
     }
 }
 

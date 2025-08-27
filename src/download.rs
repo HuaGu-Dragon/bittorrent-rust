@@ -2,10 +2,12 @@ use std::collections::BinaryHeap;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
+use sha1::{Digest, Sha1};
+use tokio::task::JoinSet;
 
 use crate::{
     BLOCK_MAX_SIZE,
-    peer::{Peer, Request},
+    peer::Peer,
     piece::Piece,
     torrent::{File, Torrent},
     tracker::TrackerResponse,
@@ -50,41 +52,69 @@ pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
 
     while let Some(piece) = need_pieces.pop() {
         let blocks_num = (piece.length() as u32 + BLOCK_MAX_SIZE - 1) / BLOCK_MAX_SIZE;
-        // let mut all_blocks = Vec::with_capacity(piece.length());
-        let peers = peers
+
+        let peers: Vec<_> = peers
             .iter_mut()
             .enumerate()
-            .filter_map(|(peer_i, peer)| piece.peers().contains(&peer_i).then_some(peer));
+            .filter_map(|(peer_i, peer)| piece.peers().contains(&peer_i).then_some(peer))
+            .collect();
 
+        let (submit, tasks) = kanal::bounded_async(blocks_num as usize);
         for block in 0..blocks_num {
-            let block_size = if block == blocks_num - 1 {
-                let md = piece.length() as u32 % BLOCK_MAX_SIZE;
-                if md == 0 { BLOCK_MAX_SIZE } else { md }
-            } else {
-                BLOCK_MAX_SIZE
-            };
-            let mut request = Request::new(
-                piece.piece_i as u32,
-                (block * BLOCK_MAX_SIZE) as u32,
-                block_size as u32,
-            );
-            let request_bytes = Vec::from(request.as_bytes_mut());
-            // peer.send(Message {
-            //     tag: MessageTag::Request,
-            //     payload: request_bytes,
-            // })
-            // .await
-            // .with_context(|| format!("send request for block {block}"))?;
-
-            // let piece = peer.next().await.context("read piece message")??;
-            // assert_eq!(piece.tag, MessageTag::Piece);
-            // let piece =
-            //     Piece::ref_from_bytes(&piece.payload[..]).context("deserialize piece message")?;
-            // assert_eq!(piece.begin() as usize, block * BLOCK_MAX_SIZE);
-            // assert_eq!(piece.block().len(), block_size);
-
-            // all_blocks.extend(piece.block());
+            submit.send(block).await.expect("send block index to tasks");
         }
+        let (finish, mut done) = tokio::sync::mpsc::channel(blocks_num as usize);
+        let mut participates = futures_util::stream::futures_unordered::FuturesUnordered::new();
+        for peer in peers {
+            participates.push(peer.participate(
+                piece.index(),
+                piece.length(),
+                blocks_num,
+                submit.clone(),
+                tasks.clone(),
+                finish.clone(),
+            ));
+        }
+        drop(submit);
+        drop(finish);
+        drop(tasks);
+
+        let mut all_blocks = vec![0u8; piece.length() as usize];
+        let mut bytes_received = 0;
+        loop {
+            tokio::select! {
+                joined = participates.next() , if !participates.is_empty() => {
+                    match joined {
+                        None => {},
+                        Some(Ok(_)) => {},
+                        Some(Err(e)) => eprintln!("peer task failed: {e:?}"),
+                    }
+                },
+                message = done.recv() => {
+                    if let Some(message) = message {
+                        let piece = crate::peer::Piece::ref_from_bytes(&message.payload[..])
+                            .context("deserialize piece message")?;
+                        all_blocks[piece.begin() as usize..].copy_from_slice(piece.block());
+                        bytes_received += piece.block().len();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        drop(participates);
+
+        if bytes_received == piece.length() as usize {
+            // All blocks received
+        } else {
+            // Some blocks are missing, re-add the piece to the heap
+            anyhow::bail!("some blocks are missing for piece {}", piece.index());
+        }
+
+        let mut hasher = Sha1::new();
+        hasher.update(&all_blocks);
+        let result: [u8; 20] = hasher.finalize().into();
+        assert_eq!(&result, piece.hash());
     }
 
     todo!()

@@ -5,8 +5,8 @@ use crate::{peer::Peer, torrent::Torrent};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Piece {
     peers: HashSet<usize>,
-    pub piece_i: usize,
-    length: usize,
+    piece_i: u32,
+    length: u32,
     hash: [u8; 20],
 }
 
@@ -46,8 +46,8 @@ impl Piece {
 
         Self {
             peers,
-            piece_i,
-            length: piece_size,
+            piece_i: piece_i as u32,
+            length: piece_size as u32,
             hash: piece_hash,
         }
     }
@@ -56,7 +56,15 @@ impl Piece {
         &self.peers
     }
 
-    pub(crate) fn length(&self) -> usize {
+    pub(crate) fn index(&self) -> u32 {
+        self.piece_i
+    }
+
+    pub(crate) fn hash(&self) -> &[u8; 20] {
+        &self.hash
+    }
+
+    pub(crate) fn length(&self) -> u32 {
         self.length
     }
 }
