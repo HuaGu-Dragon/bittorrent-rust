@@ -51,7 +51,8 @@ pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
 
     let mut all_pieces = vec![0u8; t.length()];
     while let Some(piece) = need_pieces.pop() {
-        let blocks_num = (piece.length() as u32 + BLOCK_MAX_SIZE - 1) / BLOCK_MAX_SIZE;
+        let piece_size = piece.length();
+        let blocks_num = (piece_size + BLOCK_MAX_SIZE - 1) / BLOCK_MAX_SIZE;
 
         let peers: Vec<_> = peers
             .iter_mut()
@@ -68,7 +69,7 @@ pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
         for peer in peers {
             participates.push(peer.participate(
                 piece.index(),
-                piece.length(),
+                piece_size,
                 blocks_num,
                 submit.clone(),
                 tasks.clone(),
@@ -79,7 +80,7 @@ pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
         drop(finish);
         drop(tasks);
 
-        let mut all_blocks = vec![0u8; piece.length() as usize];
+        let mut all_blocks = vec![0u8; piece_size as usize];
         let mut bytes_received = 0;
         loop {
             tokio::select! {
@@ -94,8 +95,11 @@ pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
                     if let Some(message) = message {
                         let piece = crate::peer::Piece::ref_from_bytes(&message.payload[..])
                             .context("deserialize piece message")?;
-                        all_blocks[piece.begin() as usize..].copy_from_slice(piece.block());
+                        all_blocks[piece.begin() as usize..][..piece.block().len()].copy_from_slice(piece.block());
                         bytes_received += piece.block().len();
+                        if bytes_received == piece_size as usize {
+                            break;
+                        }
                     } else {
                         break;
                     }
@@ -104,7 +108,7 @@ pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
         }
         drop(participates);
 
-        if bytes_received == piece.length() as usize {
+        if bytes_received == piece_size as usize {
             // All blocks received
         } else {
             // Some blocks are missing, re-add the piece to the heap
@@ -116,7 +120,8 @@ pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
         let result: [u8; 20] = hasher.finalize().into();
         assert_eq!(&result, piece.hash());
 
-        all_pieces[piece.index() as usize * t.info.piece_length..].copy_from_slice(&all_blocks);
+        all_pieces[piece.index() as usize * t.info.piece_length..][..piece_size as usize]
+            .copy_from_slice(&all_blocks);
     }
 
     Ok(Downloaded {
@@ -168,6 +173,7 @@ impl<'a> Iterator for DownloadedIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let file = self.file_iter.next()?;
         let bytes = &self.downloaded.bytes[self.offset..][..file.length];
+        self.offset += file.length;
         Some(DownloadFile { file, bytes })
     }
 }

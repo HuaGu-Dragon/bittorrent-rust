@@ -14,7 +14,6 @@ use tokio_util::{
 use crate::BLOCK_MAX_SIZE;
 
 pub(crate) struct Peer {
-    addr: SocketAddrV4,
     stream: Framed<TcpStream, MessageFramer>,
     bit_field: BitField,
     choked: bool,
@@ -47,41 +46,10 @@ impl Peer {
         anyhow::ensure!(bit_field.tag == MessageTag::BitField);
 
         Ok(Self {
-            addr: peer_addr,
             stream: peer,
             bit_field: BitField::from_payload(bit_field.payload),
             choked: true,
         })
-    }
-
-    pub async fn download(
-        &mut self,
-        piece: u32,
-        block: u32,
-        block_size: u32,
-    ) -> anyhow::Result<Vec<u8>> {
-        anyhow::ensure!(
-            self.bit_field.has_piece(piece),
-            "peer does not have piece {piece}"
-        );
-        let mut request = Request::new(piece as u32, block * BLOCK_MAX_SIZE, block_size as u32);
-        let request_bytes = Vec::from(request.as_bytes_mut());
-        self.stream
-            .send(Message {
-                tag: MessageTag::Request,
-                payload: request_bytes,
-            })
-            .await
-            .with_context(|| format!("send request for block {block}"))?;
-
-        let piece = self.stream.next().await.context("read piece message")??;
-        assert_eq!(piece.tag, MessageTag::Piece);
-        let piece =
-            Piece::ref_from_bytes(&piece.payload[..]).context("deserialize piece message")?;
-        anyhow::ensure!(piece.begin() == block * BLOCK_MAX_SIZE);
-        anyhow::ensure!(piece.block().len() == block_size as usize);
-
-        Ok(Vec::from(piece.block()))
     }
 
     pub fn has_piece(&self, piece: u32) -> bool {
@@ -97,6 +65,10 @@ impl Peer {
         tasks: kanal::AsyncReceiver<u32>,
         finish: tokio::sync::mpsc::Sender<Message>,
     ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.has_piece(piece_i),
+            "peer does not have piece {piece_i}"
+        );
         self.stream
             .send(Message {
                 tag: MessageTag::Interested,
@@ -187,6 +159,7 @@ impl BitField {
         byte & 1u8.rotate_right(1 + bit_i) != 0
     }
 
+    #[allow(unused)]
     pub(crate) fn pieces(&self) -> impl Iterator<Item = usize> {
         self.payload.iter().enumerate().flat_map(|(byte_i, &byte)| {
             (0..u8::BITS).filter_map(move |bit_i| {
