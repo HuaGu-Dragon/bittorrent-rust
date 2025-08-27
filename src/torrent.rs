@@ -47,7 +47,7 @@ impl Torrent {
         }
     }
 
-    pub async fn download_all(&self) -> Result<Downloaded> {
+    pub async fn download_all(self) -> Result<Downloaded> {
         crate::download::download_all(self).await
     }
 }

@@ -3,7 +3,6 @@ use std::collections::BinaryHeap;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use sha1::{Digest, Sha1};
-use tokio::task::JoinSet;
 
 use crate::{
     BLOCK_MAX_SIZE,
@@ -13,9 +12,9 @@ use crate::{
     tracker::TrackerResponse,
 };
 
-pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
+pub(crate) async fn download_all(t: Torrent) -> Result<Downloaded> {
     let info_hash = t.info_hash();
-    let peer_info = TrackerResponse::query(t, info_hash)
+    let peer_info = TrackerResponse::query(&t, info_hash)
         .await
         .context("query tracker for peer info")?;
 
@@ -50,6 +49,7 @@ pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
 
     assert!(no_peers.is_empty(), "pieces with no peers: {no_peers:?}");
 
+    let mut all_pieces = vec![0u8; t.length()];
     while let Some(piece) = need_pieces.pop() {
         let blocks_num = (piece.length() as u32 + BLOCK_MAX_SIZE - 1) / BLOCK_MAX_SIZE;
 
@@ -115,9 +115,20 @@ pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
         hasher.update(&all_blocks);
         let result: [u8; 20] = hasher.finalize().into();
         assert_eq!(&result, piece.hash());
+
+        all_pieces[piece.index() as usize * t.info.piece_length..].copy_from_slice(&all_blocks);
     }
 
-    todo!()
+    Ok(Downloaded {
+        bytes: all_pieces,
+        files: match t.info.keys {
+            crate::torrent::Keys::SingleFile { length } => vec![File {
+                length,
+                path: vec![t.info.name],
+            }],
+            crate::torrent::Keys::MultiFile { files } => files,
+        },
+    })
 }
 
 pub struct Downloaded {

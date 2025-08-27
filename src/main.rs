@@ -340,7 +340,18 @@ async fn main() -> anyhow::Result<()> {
                 .context("write piece to output file")?;
             println!("Piece {piece} downloaded to {}", output.display())
         }
-        Commands::Download { output, torrent } => {}
+        Commands::Download { output, torrent } => {
+            let torrent = Torrent::read(torrent).await.context("read torrent file")?;
+            torrent.print_tree();
+
+            let files = torrent.download_all().await.context("download all")?;
+            tokio::fs::write(
+                &output,
+                files.into_iter().next().context("no files")?.bytes(),
+            )
+            .await
+            .context("write downloaded data to output file")?;
+        }
     }
 
     Ok(())
