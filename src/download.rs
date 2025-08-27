@@ -5,7 +5,7 @@ use futures_util::StreamExt;
 
 use crate::{
     BLOCK_MAX_SIZE,
-    peer::{self, Message, MessageTag, Peer, Request},
+    peer::{Peer, Request},
     piece::Piece,
     torrent::{File, Torrent},
     tracker::TrackerResponse,
@@ -32,7 +32,7 @@ pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
     }
     drop(peers);
 
-    let peers = peer_list;
+    let mut peers = peer_list;
 
     let mut need_pieces = BinaryHeap::new();
     let mut no_peers = Vec::new();
@@ -50,7 +50,7 @@ pub(crate) async fn download_all(t: &Torrent) -> Result<Downloaded> {
 
     while let Some(piece) = need_pieces.pop() {
         let blocks_num = (piece.length() as u32 + BLOCK_MAX_SIZE - 1) / BLOCK_MAX_SIZE;
-        let mut all_blocks = Vec::with_capacity(piece.length());
+        // let mut all_blocks = Vec::with_capacity(piece.length());
         let peers = peers
             .iter_mut()
             .enumerate()
