@@ -105,15 +105,30 @@ impl Peer {
             .await
             .context("send message with interested")?;
 
-        let un_choke = self
-            .stream
-            .next()
-            .await
-            .context("read message expected UnChoke")??;
-        assert_eq!(un_choke.tag, MessageTag::UnChoke);
-        assert!(un_choke.payload.is_empty());
+        loop {
+            while self.choked {
+                let un_choke = self
+                    .stream
+                    .next()
+                    .await
+                    .context("read message expected UnChoke")??;
+                match un_choke.tag {
+                    MessageTag::UnChoke => {
+                        self.choked = false;
+                        assert!(un_choke.payload.is_empty());
+                        break;
+                    }
+                    MessageTag::Have => {
+                        todo!("update bit field");
+                    }
+                    _ => {}
+                }
+            }
 
-        while let Ok(block_i) = tasks.recv().await {
+            let Ok(block_i) = tasks.recv().await else {
+                break;
+            };
+
             let block_size = if block_i == blocks_num - 1 {
                 let md = piece_size % BLOCK_MAX_SIZE;
                 if md == 0 { BLOCK_MAX_SIZE } else { md }
@@ -131,7 +146,17 @@ impl Peer {
                 .with_context(|| format!("send request for block {block_i}"))?;
 
             let piece = self.stream.next().await.context("read piece message")??;
-            assert_eq!(piece.tag, MessageTag::Piece);
+            match piece.tag {
+                MessageTag::Choke => {
+                    self.choked = true;
+                    submit.send(block_i).await.expect("re-submit block index");
+                    continue;
+                }
+                MessageTag::Piece => {
+                    assert!(!piece.payload.is_empty());
+                }
+                _ => {}
+            }
 
             {
                 let piece = Piece::ref_from_bytes(&piece.payload[..])
