@@ -34,15 +34,25 @@ impl TrackerResponse {
 
         let mut tracker_url =
             reqwest::Url::parse(&t.announce).context("parse tracker announce URL")?;
+        if tracker_url.scheme() == "http" {
+            tracker_url
+                .set_scheme("https")
+                .expect("Failed to set HTTPS scheme");
+        }
         let url_params =
             serde_urlencoded::to_string(request).context("serialize tracker request")?;
 
         let url_params = format!("info_hash={}&{}", &url_encode(&info_hash), url_params);
         tracker_url.set_query(Some(&url_params));
 
-        let response = reqwest::get(tracker_url)
+        let client = reqwest::Client::new();
+
+        let response = client
+            .get(tracker_url)
+            .send()
             .await
             .context("send tracker request")?;
+
         let response = response.bytes().await.context("read tracker response")?;
         let response: TrackerResponse =
             serde_bencode::from_bytes(&response).context("deserialize tracker response")?;
